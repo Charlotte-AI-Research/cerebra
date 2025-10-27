@@ -9,5 +9,9 @@ It uses scraped university data, vector search, and large language models to ans
 
 ### 1️⃣ Clone the repository
 ```bash
-git clone https://github.com/<your-username>/Cerebra.git
+git clone https://github.com/Charlotte-AI-Research/cerebra.git
 cd Cerebra
+
+### 2️⃣ Activate the environment
+conda env create -f environment.yml
+conda activate cerebra
