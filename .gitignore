@@ -25,7 +25,6 @@ build/
 # Data
 data/raw/
 data/temp/
-# Keep processed small text if needed; large files should stay out of git
 
 # VS Code (keep local settings out of repo)
 .vscode/
