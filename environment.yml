@@ -1,0 +1,21 @@
+name: cerebra
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - numpy
+  - pandas
+  - scikit-learn
+  - jupyter
+  - matplotlib
+  - pip:
+      - langchain
+      - llama-index
+      - openai
+      - tiktoken
+      - requests
+      - beautifulsoup4
+      - lxml
+      - kronoslabs

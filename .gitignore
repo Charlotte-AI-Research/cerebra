@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environments & build
+.env
+.venv/
+env/
+envs/
+dist/
+build/
+*.conda
+*.whl
+
+# Logs
+*.log
+
+# Data
+data/raw/
+data/temp/
+# Keep processed small text if needed; large files should stay out of git
+
+# VS Code (keep local settings out of repo)
+.vscode/
