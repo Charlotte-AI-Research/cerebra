@@ -21,7 +21,7 @@ conda activate cerebra
 ```
 
 
-### Test Environment
+### 3️⃣ Test Environment
 ```bash
 python scripts/dev_check.py
 ```
