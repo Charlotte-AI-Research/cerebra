@@ -1,6 +1,10 @@
 try:
-    import langchain, llama_index, tiktoken
-    import numpy, pandas, sklearn
+    import langchain
+    import llama_index
+    import tiktoken
+    import numpy
+    import pandas
+    import sklearn
     print("Imports OK — environment set up correctly!")
 except Exception as e:
     print("Import error:", e)
