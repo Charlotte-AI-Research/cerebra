@@ -11,8 +11,11 @@ It uses scraped university data, vector search, and large language models to ans
 ```bash
 git clone https://github.com/Charlotte-AI-Research/cerebra.git
 cd cerebra
+```
 
 
-2️⃣ Activate the environment
+### 2️⃣ Activate the environment
+```bash
 conda env create -f environment.yml
 conda activate cerebra
+```
