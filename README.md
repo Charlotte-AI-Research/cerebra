@@ -19,3 +19,14 @@ cd cerebra
 conda env create -f environment.yml
 conda activate cerebra
 ```
+
+
+### Test Environment
+```bash
+python scripts/dev_check.py
+```
+If correctly setup, terminal should show:
+```bash
+Imports OK - environment setup correctly!
+```
+
