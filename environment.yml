@@ -19,3 +19,4 @@ dependencies:
       - beautifulsoup4
       - lxml
       - kronoslabs
+      - chromadb
