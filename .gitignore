@@ -6,9 +6,6 @@ __pycache__/
 *.egg-info/
 *.egg
 
-# Jupyter
-.ipynb_checkpoints/
-
 # Environments & build
 .env
 .venv/
@@ -24,7 +21,7 @@ build/
 
 # Data
 data/raw/
-data/temp/
+data/processed/
 
 # VS Code (keep local settings out of repo)
 .vscode/
