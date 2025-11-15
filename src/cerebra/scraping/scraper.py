@@ -1,22 +1,27 @@
 from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
-BASE_DOMAIN = "https://cci.charlotte.edu"
 MAX_DEPTH = 25
 MAX_FILE_SIZE_MB = 0.5  # rotate files when they exceed this size
+
+# Starting URLs (can be any domain)
+program_urls = [
+    "https://cci.charlotte.edu"
+]
+
+# Derive base domain and file prefix from the first URL
+parsed_root = urlparse(program_urls[0])
+BASE_DOMAIN = f"{parsed_root.scheme}://{parsed_root.netloc}"
+domain_prefix = parsed_root.netloc.replace(".", "_")
 
 # Create the raw data folder
 output_dir = Path("data/raw")
 output_dir.mkdir(parents=True, exist_ok=True)
 
 file_index = 1
-current_file_path = output_dir / f"cci_data_{file_index}.txt"
-
-cci_program_urls = [
-   "https://cci.charlotte.edu"
-]
+current_file_path = output_dir / f"{domain_prefix}_{file_index}.txt"
 
 visited = set()
 
@@ -28,11 +33,12 @@ def get_current_file():
         size_mb = current_file_path.stat().st_size / (1024 * 1024)
         if size_mb >= MAX_FILE_SIZE_MB:
             file_index += 1
-            current_file_path = output_dir / f"cci_data_{file_index}.txt"
+            current_file_path = output_dir / f"{domain_prefix}_{file_index}.txt"
     return open(current_file_path, "a", encoding="utf-8")
 
+
 def scrape_page(url, depth=0):
-    """Scrape text from CCI pages and follow internal links."""
+    """Scrape text from pages and follow internal links."""
     if url in visited or depth > MAX_DEPTH:
         return
     visited.add(url)
@@ -54,7 +60,7 @@ def scrape_page(url, depth=0):
                 f.write(para + "\n")
             f.write("\n" + "=" * 80 + "\n\n")
 
-        # Recursively follow internal CCI links
+        # Recursively follow internal links on the same domain
         if depth < MAX_DEPTH:
             for link_tag in soup.find_all("a", href=True):
                 full_url = urljoin(url, link_tag["href"])
@@ -65,8 +71,11 @@ def scrape_page(url, depth=0):
         print(f" Error scraping {url}: {e}")
 
 
-for url in cci_program_urls:
+for url in program_urls:
     if url.startswith(BASE_DOMAIN):
         scrape_page(url)
 
-print(f" Scraping complete! Files saved in '{output_dir}' as cci_data_1.txt, cci_data_2.txt, etc.")
+print(
+    f" Scraping complete! Files saved in '{output_dir}' "
+    f"as {domain_prefix}_1.txt, {domain_prefix}_2.txt, etc."
+)
