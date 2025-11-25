@@ -8,7 +8,7 @@ MAX_FILE_SIZE_MB = 0.5  # rotate files when they exceed this size
 
 # Starting URLs (can be any domain)
 program_urls = [
-    "https://coaa.charlotte.edu/"
+    "https://science.charlotte.edu/"
 ]
 
 # Derive base domain and file prefix from the first URL

@@ -1,4 +1,0 @@
-discord.py
-openai
-chromadb
-python-dotenv
