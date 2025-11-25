@@ -22,6 +22,10 @@ build/
 # Data
 data/raw/
 data/processed/
+data/channel-announcements.jsonl
+data/club-summary.txt
 
 # VS Code (keep local settings out of repo)
 .vscode/
+
+channel-announcements.json
