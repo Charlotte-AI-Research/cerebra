@@ -20,6 +20,5 @@ dependencies:
       - lxml
       - kronoslabs
       - chromadb
-      - dotenv
+      - python-dotenv
       - discord.py
-      
