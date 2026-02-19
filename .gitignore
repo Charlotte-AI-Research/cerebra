@@ -22,10 +22,9 @@ build/
 # Data
 data/raw/
 data/processed/
-data/channel-announcements.jsonl
-data/club-summary.txt
 data/chroma_db/
+data/cair_overview.md
+data/courses_summer2026.md
+data/past_events.md
 # VS Code (keep local settings out of repo)
 .vscode/
-
-channel-announcements.json
