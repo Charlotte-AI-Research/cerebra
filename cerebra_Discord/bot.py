@@ -23,21 +23,22 @@ class CAIRBot(discord.Client):
         if message.author == self.user:
             return
 
-        # Check if the bot is mentioned or if it's a DM (optional, for now just respond to mentions or specific prefix?)
-        # The prompt didn't specify a trigger, so let's assume it responds to mentions or if it's in a specific channel.
-        # For simplicity, let's make it respond if mentioned.
         if self.user in message.mentions:
             async with message.channel.typing():
-                # Remove the mention from the query
                 query = message.content.replace(f'<@{self.user.id}>', '').strip()
-                
+
                 if not query:
                     await message.channel.send("Hello! How can I help you with CAIR today?")
                     return
 
                 try:
                     response = self.rag.query(query)
-                    await message.channel.send(response)
+                    # Split into chunks if response exceeds Discord's 2000 char limit
+                    if len(response) > 2000:
+                        for i in range(0, len(response), 2000):
+                            await message.channel.send(response[i:i+2000])
+                    else:
+                        await message.channel.send(response)
                 except Exception as e:
                     print(f"Error processing query: {e}")
                     await message.channel.send("Sorry, I encountered an error while processing your request.")

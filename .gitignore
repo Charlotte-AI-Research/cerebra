@@ -24,7 +24,7 @@ data/raw/
 data/processed/
 data/channel-announcements.jsonl
 data/club-summary.txt
-
+data/chroma_db/
 # VS Code (keep local settings out of repo)
 .vscode/
 
