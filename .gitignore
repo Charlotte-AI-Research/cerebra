@@ -1,108 +1,24 @@
 # ─── Python ───────────────────────────────────────────────
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
-*.so
-*.egg
 *.egg-info/
-*.eggs/
 dist/
 build/
-wheels/
-sdist/
-var/
-lib/
-lib64/
-parts/
-MANIFEST
 
 # ─── Environments ─────────────────────────────────────────
 .env
 .env.*
 .venv/
 venv/
-env/
-envs/
-ENV/
-.conda/
-*.conda
-*.whl
 
-# ─── Jupyter ──────────────────────────────────────────────
-.ipynb_checkpoints/
-*.ipynb
-
-# ─── Data & Vector Store ──────────────────────────────────
-data/raw/
-data/processed/
-data/channel-announcements.jsonl
-data/club-summary.txt
-data/chroma_db/
-<<<<<<< Updated upstream
-# VS Code (keep local settings out of repo)
-.vscode/
-
-channel-announcements.json
-=======
-data/cair_overview.md
-data/courses_summer2026.md
-data/past_events.md
+# ─── Data ─────────────────────────────────────────────────
+**/data/
 *.sqlite3
-chroma.sqlite3
 
-# ─── Logs & Debug ─────────────────────────────────────────
-*.log
-*.log.*
-logs/
-log/
-
-# ─── Secrets & Keys ───────────────────────────────────────
-*.pem
-*.key
-*.cert
-secrets/
-credentials/
-config/local_*
+# ─── IDEs ─────────────────────────────────────────────────
+.vscode/
+.idea/
 
 # ─── OS ───────────────────────────────────────────────────
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
-desktop.ini
-
-# ─── IDEs & Editors ───────────────────────────────────────
-.vscode/
-.idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-*.swp
-*.swo
-*~
-
-# ─── Testing & Coverage ───────────────────────────────────
-.pytest_cache/
-.coverage
-.coverage.*
-coverage.xml
-htmlcov/
-nosetests.xml
-test-results/
-
-# ─── Type Checking ────────────────────────────────────────
-.mypy_cache/
-.dmypy.json
-.pyright/
-.ruff_cache/
-
-# ─── Packaging & Docs ─────────────────────────────────────
-docs/_build/
-site/
->>>>>>> Stashed changes

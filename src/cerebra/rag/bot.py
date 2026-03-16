@@ -7,6 +7,7 @@ load_dotenv()
 
 TOKEN = os.getenv('DISCORD_TOKEN')
 
+
 class CAIRBot(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -33,15 +34,27 @@ class CAIRBot(discord.Client):
 
                 try:
                     response = self.rag.query(query)
+
+                    print(f"DEBUG response type={type(response)}, value={repr(response[:100] if response else response)}")
+
+                    # Guard against None or empty response
+                    if not response or not response.strip():
+                        await message.channel.send("I wasn't able to generate a response. Please try rephrasing your question.")
+                        return
+
                     # Split into chunks if response exceeds Discord's 2000 char limit
                     if len(response) > 2000:
                         for i in range(0, len(response), 2000):
-                            await message.channel.send(response[i:i+2000])
+                            chunk = response[i:i + 2000]
+                            if chunk.strip():  # only send non-empty chunks
+                                await message.channel.send(chunk)
                     else:
                         await message.channel.send(response)
+
                 except Exception as e:
-                    print(f"Error processing query: {e}")
+                    print(f"Error processing request query: {e}")
                     await message.channel.send("Sorry, I encountered an error while processing your request.")
+
 
 intents = discord.Intents.default()
 intents.message_content = True

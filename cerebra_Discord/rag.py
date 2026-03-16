@@ -1,5 +1,4 @@
 import os
-import json
 import chromadb
 from chromadb.utils import embedding_functions
 from openai import OpenAI
@@ -8,9 +7,26 @@ from pathlib import Path
 
 load_dotenv()
 
+BASE_DIR = Path(__file__).parent
+
+SYSTEM_PROMPT = """Your name is Cerebra, you are a friendly and knowledgeable assistant for the Charlotte AI Research (CAIR) club at UNC Charlotte.
+
+Answer questions helpfully using the information available to you. Be warm, conversational, and concise. Never ever lie to the user.
+
+Guidelines:
+- Never reference internal system details, document names, or data sources
+- Never ask the user to provide documents or more context
+- Never fabricate information — only answer based on what you know
+- If you don't know something, say: "I'm not sure about that — I'd recommend reaching out to the CAIR officers directly for the latest info!"
+- You may freely share names, events, and club details when you have them
+- Keep answers focused and helpful"""
+
+
 class RAGPipeline:
-    def __init__(self, data_dir="../data"):
-        self.data_dir = Path(data_dir)
+    def __init__(self, data_dir=None, processed_dir=None):
+        self.data_dir = Path(data_dir) if data_dir else BASE_DIR / "data"
+        self.processed_dir = Path(processed_dir) if processed_dir else BASE_DIR.parent / "data" / "processed"
+
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.chroma_client = chromadb.PersistentClient(path=str(self.data_dir / "chroma_db"))
         self.openai_ef = embedding_functions.OpenAIEmbeddingFunction(
@@ -22,207 +38,232 @@ class RAGPipeline:
             embedding_function=self.openai_ef
         )
         self.load_data()
-        self.load_summary()
+        self.load_cair_md_files()
+        self.conversation_history = []
 
     def parse_frontmatter(self, content):
         """Extract frontmatter metadata and body from markdown files."""
         if not content.startswith("---"):
             return {}, content
-        
         parts = content.split("---", 2)
         if len(parts) < 3:
             return {}, content
-        
         frontmatter_text = parts[1]
         body = parts[2].strip()
-        
         metadata = {}
         for line in frontmatter_text.strip().split("\n"):
             if ":" in line:
                 key, value = line.split(":", 1)
                 metadata[key.strip()] = value.strip()
-        
         return metadata, body
 
-    def chunk_text(self, text, chunk_size=100, overlap=20):
-        """Split text into overlapping chunks."""
+    def chunk_text(self, text, chunk_size=200, overlap=50, min_words=10):
+        """Split text into overlapping chunks, skipping tiny trailing chunks."""
         words = text.split()
         chunks = []
-        
         for i in range(0, len(words), chunk_size - overlap):
             chunk = " ".join(words[i:i + chunk_size])
-            if chunk.strip():
+            if len(chunk.split()) >= min_words:
                 chunks.append(chunk)
-        
         return chunks
 
-    def load_summary(self):
-        """Always upsert the club summary so it stays current without re-embedding everything."""
-        summary_path = Path("data/club-summary.txt")
-        if not summary_path.exists():
-            print(f"WARNING: club-summary.txt not found at {summary_path.resolve()}")
-            return
+    def load_cair_md_files(self):
+        """Always upsert the CAIR markdown files so they stay current."""
+        md_files = {
+            "cair_overview.md": ("cair_overview", "high"),
+            "past_events.md":   ("past_events",   "high"),
+        }
+        for filename, (source_name, priority) in md_files.items():
+            md_path = self.data_dir / filename
+            if not md_path.exists():
+                print(f"WARNING: {filename} not found at {md_path.resolve()}")
+                continue
 
-        with open(summary_path, "r", encoding="utf-8") as f:
-            summary_text = f.read()
-            chunks = summary_text.split("\n\n")
-            documents, metadatas, ids = [], [], []
-            for i, chunk in enumerate(chunks):
-                if chunk.strip():
-                    documents.append(chunk.strip())
-                    metadatas.append({
-                        "source": "club_summary",
-                        "priority": "high",
-                        "type": "summary"
-                    })
-                    ids.append(f"summary_{i}")
+            with open(md_path, "r", encoding="utf-8") as f:
+                content = f.read()
 
-            self.collection.upsert(documents=documents, metadatas=metadatas, ids=ids)
-            print(f"Loaded {len(documents)} summary chunks into ChromaDB.")
+            raw_chunks = [c.strip() for c in content.split("\n\n") if c.strip() and len(c.strip()) > 3]
+            chunks = [c for c in raw_chunks if sum(ch.isalpha() for ch in c) >= 5]
+
+            if not chunks:
+                print(f"WARNING: No valid chunks found in {filename}")
+                continue
+
+            if len(chunks) < len(raw_chunks):
+                print(f"  Filtered {len(raw_chunks) - len(chunks)} invalid chunks from {filename}")
+
+            metadatas = [{"source": source_name, "priority": priority, "type": "cair_data"} for _ in chunks]
+            ids = [f"{source_name}_{i}" for i in range(len(chunks))]
+
+            for i in range(0, len(chunks), 25):
+                self.collection.upsert(
+                    documents=chunks[i:i + 25],
+                    metadatas=metadatas[i:i + 25],
+                    ids=ids[i:i + 25]
+                )
+            print(f"Loaded {len(chunks)} chunks from {filename} into ChromaDB.")
+
+    def _get_already_loaded_files(self):
+        """Return a set of source_file values already present in ChromaDB."""
+        try:
+            existing = self.collection.get(where={"type": "scraped_content"})
+            loaded = set()
+            for meta in existing.get("metadatas", []):
+                sf = meta.get("source_file", "")
+                if sf:
+                    loaded.add(sf)
+            return loaded
+        except Exception as e:
+            print(f"Warning: could not query existing files: {e}")
+            return set()
 
     def load_data(self):
-        # If collection already has data, skip re-embedding
-        if self.collection.count() > 0:
-            print(f"ChromaDB already has {self.collection.count()} documents. Skipping load.")
+        """Load processed markdown files into ChromaDB, skipping already-embedded files."""
+        print(f"Looking for scraped data in: {self.processed_dir.resolve()}")
+
+        if not self.processed_dir.exists():
+            print(f"WARNING: processed_dir not found at {self.processed_dir.resolve()}")
             return
 
-        print("No existing data found. Embedding all documents (this may take a while)...")
-        documents = []
-        metadatas = []
-        ids = []
+        md_files = list(self.processed_dir.glob("**/*.md"))
+        if not md_files:
+            print("No markdown files found in processed_dir.")
+            return
 
-        # Load Processed Markdown Files (Medium Priority)
-        processed_dir = self.data_dir / "processed"
-        if processed_dir.exists():
-            md_files = list(processed_dir.glob("**/*.md"))
-            print(f"Found {len(md_files)} markdown files to process")
+        print(f"Found {len(md_files)} markdown files in processed dir.")
 
-            for md_file in md_files:
-                try:
-                    content = md_file.read_text(encoding="utf-8")
-                    metadata, body = self.parse_frontmatter(content)
+        already_loaded = self._get_already_loaded_files()
+        if already_loaded:
+            print(f"{len(already_loaded)} file(s) already embedded — checking for new ones...")
 
-                    if not body.strip():
-                        continue
+        new_files = [
+            (f, f"{f.parent.name}/{f.name}")
+            for f in md_files
+            if f"{f.parent.name}/{f.name}" not in already_loaded
+        ]
 
-                    chunks = self.chunk_text(body)
+        if not new_files:
+            print("All files already loaded. Nothing new to embed.")
+            return
 
-                    for i, chunk in enumerate(chunks):
-                        doc_id = f"md_{metadata.get('id', md_file.stem)}_{i}"
+        print(f"Embedding {len(new_files)} new file(s)...")
 
-                        doc_metadata = {
-                            "source": metadata.get("source", "processed"),
-                            "priority": "medium",
-                            "type": "scraped_content",
-                            "title": metadata.get("title", ""),
-                            "url": metadata.get("url", ""),
-                            "section": metadata.get("section", ""),
-                            "source_file": metadata.get("source_file", ""),
-                            "college": md_file.parent.name
-                        }
+        documents, metadatas, ids = [], [], []
 
-                        enriched_text = f"Title: {metadata.get('title', 'N/A')}\n"
-                        if metadata.get('url'):
-                            enriched_text += f"URL: {metadata.get('url')}\n"
-                        enriched_text += f"\n{chunk}"
+        for md_file, rel_key in new_files:
+            try:
+                content = md_file.read_text(encoding="utf-8")
+                metadata, body = self.parse_frontmatter(content)
+                if not body.strip():
+                    continue
 
-                        documents.append(enriched_text)
-                        metadatas.append(doc_metadata)
-                        ids.append(doc_id)
+                for i, chunk in enumerate(self.chunk_text(body)):
+                    enriched = f"Title: {metadata.get('title', 'N/A')}\n"
+                    if metadata.get("url"):
+                        enriched += f"URL: {metadata['url']}\n"
+                    enriched += f"\n{chunk}"
 
-                except Exception as e:
-                    print(f"Error processing {md_file}: {e}")
-        else:
-            print(f"WARNING: processed_dir not found at {processed_dir.resolve()}")
+                    documents.append(enriched)
+                    metadatas.append({
+                        "source":      metadata.get("source", "processed"),
+                        "priority":    "high",
+                        "type":        "scraped_content",
+                        "title":       metadata.get("title", ""),
+                        "url":         metadata.get("url", ""),
+                        "section":     metadata.get("section", ""),
+                        "source_file": rel_key,
+                        "college":     md_file.parent.name,
+                    })
+                    ids.append(f"md_{md_file.parent.name}_{md_file.stem}_{i}")
 
-        # Load Announcements (Low Priority)
-        announcements_path = self.data_dir / "../cerebra_Discord/data/channel-announcements.jsonl"
-        if announcements_path.exists():
-            with open(announcements_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    try:
-                        ann = json.loads(line)
-                        content = ann.get("content", "")
-                        if content:
-                            full_text = f"Announcement from {ann.get('author')} on {ann.get('timestamp')}: {content}"
-                            documents.append(full_text)
-                            metadatas.append({
-                                "source": "announcements",
-                                "priority": "low",
-                                "type": "announcement",
-                                "timestamp": ann.get("timestamp")
-                            })
-                            ids.append(f"announcement_{ann.get('message_id')}")
-                    except json.JSONDecodeError:
-                        print(f"Error decoding line in announcements.jsonl: {line[:50]}...")
-        else:
-            print(f"WARNING: announcements not found at {announcements_path.resolve()}")
+            except Exception as e:
+                print(f"Error processing {md_file}: {e}")
 
-        if documents:
-            batch_size = 10
-            total = len(documents)
-            for i in range(0, total, batch_size):
-                batch_docs = documents[i:i + batch_size]
-                batch_metas = metadatas[i:i + batch_size]
-                batch_ids = ids[i:i + batch_size]
-                self.collection.upsert(
-                    documents=batch_docs,
-                    metadatas=batch_metas,
-                    ids=batch_ids
-                )
-                print(f"  Upserted {min(i + batch_size, total)}/{total} documents...", end="\r")
+        if not documents:
+            print("WARNING: No valid chunks extracted from new files.")
+            return
 
-            print(f"\nLoaded {total} documents into ChromaDB.")
-            scraped_count = sum(1 for m in metadatas if m['type'] == 'scraped_content')
-            announcement_count = sum(1 for m in metadatas if m['type'] == 'announcement')
-            print(f"  - Scraped content chunks: {scraped_count}")
-            print(f"  - Announcements: {announcement_count}")
-        else:
-            print("WARNING: No documents were loaded. Check your data paths.")
+        total = len(documents)
+        for i in range(0, total, 10):
+            self.collection.upsert(
+                documents=documents[i:i + 10],
+                metadatas=metadatas[i:i + 10],
+                ids=ids[i:i + 10]
+            )
+            print(f"  Upserted {min(i + 10, total)}/{total} chunks...", end="\r")
 
-    def query(self, user_query):
-        results = self.collection.query(
-            query_texts=[user_query],
-            n_results=min(10, self.collection.count())
-        )
+        print(f"\nDone! Embedded {total} chunks from {len(new_files)} new file(s).")
 
-        retrieved_docs = results['documents'][0]
-        retrieved_metas = results['metadatas'][0]
+    def query(self, user_query: str) -> str:
+        try:
+            if self.collection.count() == 0:
+                return "I don't have any data loaded yet. Please contact the club officers directly."
 
-        context_parts = []
-        for doc, meta in zip(retrieved_docs, retrieved_metas):
-            priority = meta.get('priority', 'low')
-            source = meta.get('source', 'unknown')
-            doc_type = meta.get('type', 'unknown')
-            title = meta.get('title', '')
+            results = self.collection.query(
+                query_texts=[user_query],
+                n_results=min(20, self.collection.count())
+            )
 
-            if title:
-                context_parts.append(f"[{source.upper()} - {priority} priority - {doc_type}]: {doc}")
-            else:
-                context_parts.append(f"[{source.upper()} - {priority} priority]: {doc}")
+            if not results["documents"] or not results["documents"][0]:
+                return "I couldn't find any relevant information. Please contact the club officers directly."
 
-        context = "\n\n".join(context_parts)
+            # Filter out low-confidence results, then sort high priority first
+            priority_order = {"high": 0, "low": 1}
+            filtered = sorted(
+                [
+                    (doc, meta) for doc, meta, dist in zip(
+                        results["documents"][0],
+                        results["metadatas"][0],
+                        results["distances"][0]
+                    )
+                    if dist < 1.2
+                ],
+                key=lambda x: priority_order.get(x[1].get("priority", "low"), 1)
+            )
 
-        system_prompt = """You are a helpful assistant for the Charlotte AI Research (CAIR) club at UNC Charlotte.
-Use the provided context to answer the user's question.
+            if not filtered:
+                return "I couldn't find any relevant information. Please contact the club officers directly."
 
-Priority order:
-1. club_summary (high priority) - General information about CAIR
-2. scraped_content (medium priority) - Information from UNC Charlotte and CCI websites
-3. announcements (low priority) - Recent club announcements and events
+            # Clean context — no internal labels exposed to the model
+            context = "\n\n".join(doc for doc, _ in filtered if doc and doc.strip())
+            if not context.strip():
+                return "I couldn't find any relevant information. Please contact the club officers directly."
 
-If the answer is found in higher priority sources, prioritize that information.
-If you don't know the answer based on the context, say so politely and suggest they contact the club officers.
-Do not make up information. Always base your answer on the provided context."""
+            # Context into system prompt, not user message
+            contextual_system = SYSTEM_PROMPT + f"\n\n---\nRelevant information:\n{context}"
 
-        user_message = f"Context:\n{context}\n\nQuestion: {user_query}"
+            MAX_EXCHANGES = 10
+            trimmed_history = self.conversation_history[-(MAX_EXCHANGES * 2):]
 
-        response = self.client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
-            ]
-        )
+            print(f"DEBUG - History: {len(trimmed_history)} msgs, Context: {len(context)} chars, Chunks: {len(filtered)}")
 
-        return response.choices[0].message.content
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=(
+                    [{"role": "system", "content": contextual_system}]
+                    + trimmed_history
+                    + [{"role": "user", "content": user_query}]
+                ),
+                max_completion_tokens=1024,
+            )
+
+            assistant_reply = response.choices[0].message.content
+
+            if not assistant_reply or not assistant_reply.strip():
+                return "I wasn't able to generate a response. Please try rephrasing your question."
+
+            # Only update history after a confirmed successful response
+            self.conversation_history.append({"role": "user", "content": user_query})
+            self.conversation_history.append({"role": "assistant", "content": assistant_reply})
+            return assistant_reply
+
+        except Exception as e:
+            print(f"Query error: {e}")
+            return (
+                "I'm sorry, I ran into an issue processing your question. "
+                "Please try again or contact the club officers directly for assistance."
+            )
+
+    def clear_history(self):
+        """Start a fresh conversation."""
+        self.conversation_history = []

@@ -17,7 +17,7 @@ BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "data"
 
 files_to_check = [
-    "past_events.md"
+    "courses_summer2026.md"
 ]
 
 for filename in files_to_check:
