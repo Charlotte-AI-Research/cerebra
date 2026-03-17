@@ -2,7 +2,7 @@
 ingest.py — Cerebra data ingestion pipeline
 
 Sources:
-  1. data/processed/**/*.md               — scraped university pages  (priority: medium)
+  1. data/processed/**/*.md               — scraped university pages  (priority: high)
   2. cerebra_discord/data/cair_overview.md — first-party CAIR info    (priority: high)
   3. cerebra_discord/data/past_events.md   — CAIR event history       (priority: low)
 
@@ -154,7 +154,7 @@ def build_processed_docs(md_files: list) -> tuple[list, list, list]:
                 metadatas.append({
                     "source":      metadata.get("source", "processed"),
                     "type":        "scraped_content",
-                    "priority":    "medium",
+                    "priority":    "high",
                     "title":       title,
                     "url":         url,
                     "section":     metadata.get("section", ""),
