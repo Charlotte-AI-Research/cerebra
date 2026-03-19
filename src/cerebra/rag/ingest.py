@@ -139,6 +139,7 @@ def build_processed_docs(md_files: list) -> tuple[list, list, list]:
             title   = metadata.get("title", "")
             url     = metadata.get("url", "")
             college = md_file.parent.name
+            college = metadata.get("college")
             # Use frontmatter id if present, otherwise relative path
             namespace = metadata.get("id") or str(md_file.relative_to(PROCESSED_DIR))
 
@@ -152,12 +153,10 @@ def build_processed_docs(md_files: list) -> tuple[list, list, list]:
 
                 documents.append(enriched)
                 metadatas.append({
-                    "source":      metadata.get("source", "processed"),
                     "type":        "scraped_content",
                     "priority":    "high",
                     "title":       title,
                     "url":         url,
-                    "section":     metadata.get("section", ""),
                     "source_file": metadata.get("source_file", md_file.name),
                     "college":     college,
                     "depth":       metadata.get("depth", ""),
@@ -189,12 +188,10 @@ def build_section_docs(file_path, source_name: str, priority: str) -> tuple[list
 
         documents.append(enriched)
         metadatas.append({
-            "source":   source_name,
             "type":     "cair_info",
             "priority": priority,
             "title":    section_title,
             "url":      "",
-            "section":  section_title,
         })
         ids.append(make_id(source_name, i))
 
