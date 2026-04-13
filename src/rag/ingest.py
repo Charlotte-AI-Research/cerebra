@@ -2,31 +2,37 @@
 ingest.py — Cerebra data ingestion pipeline
 
 Sources:
-  1. data/processed/**/*.md               — scraped university pages  (priority: high)
-  2. cerebra_discord/data/cair_overview.md — first-party CAIR info    (priority: high)
-  3. cerebra_discord/data/past_events.md   — CAIR event history       (priority: low)
+  1. data/processed/**/*.md  — scraped university pages  (priority: high)
+  2. data/cair_overview.md   — first-party CAIR info     (priority: high)
+  3. data/past_events.md     — CAIR event history        (priority: low)
 
 Processed files are word-chunked.
-Discord md files are section-chunked (split on ## headers).
+Markdown files are section-chunked (split on ## headers).
 
 Ingestion is incremental — deterministic chunk IDs mean upsert only
 embeds chunks that are new or changed.
+
+Embeddings → Local Qwen3-Embedding-4B via vLLM (http://localhost:8001)
+  Start with: vllm serve Qwen/Qwen3-Embedding-4B --task embed --port 8001
 """
 
 import hashlib
 import re
 import time
+from typing import List
 
+import requests
 import chromadb
-from chromadb.utils import embedding_functions
+from chromadb import Documents, EmbeddingFunction, Embeddings
 
 from config import (
     CHROMA_API_KEY,
     CHROMA_TENANT,
     CHROMA_DATABASE,
     COLLECTION_NAME,
-    OPENAI_API_KEY,
-    EMBEDDING_MODEL,
+    VLLM_EMBED_BASE_URL,
+    VLLM_EMBED_MODEL,
+    VLLM_API_KEY,
     PROCESSED_DIR,
     CAIR_OVERVIEW_FILE,
     PAST_EVENTS_FILE,
@@ -36,7 +42,59 @@ from config import (
 )
 
 
-# ChromaDB client 
+# vLLM embedding function (OpenAI-compatible /v1/embeddings endpoint)
+
+class VLLMEmbeddingFunction(EmbeddingFunction):
+    """
+    ChromaDB-compatible embedding function that calls a local vLLM server
+    via the OpenAI-compatible /v1/embeddings REST endpoint.
+    """
+
+    def __init__(
+        self,
+        base_url: str = VLLM_EMBED_BASE_URL,
+        model: str = VLLM_EMBED_MODEL,
+        api_key: str = VLLM_API_KEY,
+    ):
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        self._check_connection()
+
+    def _check_connection(self):
+        try:
+            resp = requests.get(f"{self.base_url}/v1/models", headers=self.headers, timeout=5)
+            resp.raise_for_status()
+            available = [m["id"] for m in resp.json().get("data", [])]
+            if self.model not in available:
+                print(f"  [WARNING] Model '{self.model}' not found on vLLM server.")
+                print(f"  Available models: {available}")
+                print(f"  Start it with: vllm serve {self.model} --task embed --port 8001")
+        except requests.exceptions.ConnectionError:
+            raise RuntimeError(
+                f"Cannot connect to vLLM embedding server at {self.base_url}.\n"
+                f"Start it with: vllm serve {self.model} --task embed --port 8001"
+            )
+
+    def _embed_batch(self, texts: List[str]) -> List[List[float]]:
+        resp = requests.post(
+            f"{self.base_url}/v1/embeddings",
+            headers=self.headers,
+            json={"model": self.model, "input": texts},
+            timeout=120,
+        )
+        resp.raise_for_status()
+        data = sorted(resp.json()["data"], key=lambda x: x["index"])
+        return [item["embedding"] for item in data]
+
+    def __call__(self, input: Documents) -> Embeddings:
+        return self._embed_batch(list(input))
+
+
+# ChromaDB client
 
 def get_collection():
     client = chromadb.CloudClient(
@@ -44,15 +102,9 @@ def get_collection():
         tenant=CHROMA_TENANT,
         database=CHROMA_DATABASE,
     )
-
-    openai_ef = embedding_functions.OpenAIEmbeddingFunction(
-        api_key=OPENAI_API_KEY,
-        model_name=EMBEDDING_MODEL,
-    )
-
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
-        embedding_function=openai_ef,
+        embedding_function=VLLMEmbeddingFunction(),
         metadata={"hnsw:space": "cosine"},
     )
 
@@ -136,11 +188,9 @@ def build_processed_docs(md_files: list) -> tuple[list, list, list]:
             if not body.strip():
                 continue
 
-            title   = metadata.get("title", "")
-            url     = metadata.get("url", "")
-            college = md_file.parent.name
-            college = metadata.get("college")
-            # Use frontmatter id if present, otherwise relative path
+            title     = metadata.get("title", "")
+            url       = metadata.get("url", "")
+            college   = metadata.get("college", md_file.parent.name)
             namespace = metadata.get("id") or str(md_file.relative_to(PROCESSED_DIR))
 
             for i, chunk in enumerate(chunk_text(body)):
@@ -171,7 +221,7 @@ def build_processed_docs(md_files: list) -> tuple[list, list, list]:
 
 def build_section_docs(file_path, source_name: str, priority: str) -> tuple[list, list, list]:
     """
-    Parse a no-frontmatter markdown file by ## section headers.
+    Parse a markdown file by ## section headers.
     Returns (documents, metadatas, ids).
     """
     documents, metadatas, ids = [], [], []
@@ -198,7 +248,7 @@ def build_section_docs(file_path, source_name: str, priority: str) -> tuple[list
     return documents, metadatas, ids
 
 
-# Upsert 
+# Upsert
 
 def upsert_batched(collection, documents: list, metadatas: list, ids: list, label: str = ""):
     """Upsert documents to ChromaDB Cloud in batches with simple retry."""
@@ -234,6 +284,8 @@ def upsert_batched(collection, documents: list, metadatas: list, ids: list, labe
     print()
 
 
+# Main
+
 def main():
     print("Connecting to ChromaDB Cloud...")
     collection = get_collection()
@@ -250,7 +302,7 @@ def main():
         print(f"      Generated {len(docs)} chunks")
         upsert_batched(collection, docs, metas, ids, label="scraped")
 
-    # CAIR Overview (high priority) 
+    # CAIR Overview (high priority)
     print(f"[2/3] Ingesting CAIR overview: {CAIR_OVERVIEW_FILE.name}")
     docs, metas, ids = build_section_docs(CAIR_OVERVIEW_FILE, "cair_overview", priority="high")
     print(f"      Generated {len(docs)} section chunks")
@@ -262,7 +314,6 @@ def main():
     print(f"      Generated {len(docs)} section chunks")
     upsert_batched(collection, docs, metas, ids, label="past_events")
 
-    # Summary 
     new_count = collection.count()
     added = new_count - existing_count
     print(f"\nDone. Collection now has {new_count} documents (+{added} new)\n")

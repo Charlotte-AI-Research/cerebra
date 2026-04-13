@@ -9,7 +9,7 @@ import os
 import discord
 from dotenv import load_dotenv
 
-from chat import ask
+from rag.chat import ask
 
 load_dotenv()
 

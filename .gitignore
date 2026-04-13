@@ -10,6 +10,7 @@ build/
 .env.*
 .venv/
 venv/
+uv.lock
 
 # ─── Data ─────────────────────────────────────────────────
 **/data/
@@ -24,5 +25,5 @@ venv/
 Thumbs.db
 
 
-**/claudeslop
+
 
