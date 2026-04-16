@@ -5,22 +5,24 @@ Responds when mentioned in a Discord server,
 using the Cerebra RAG pipeline to answer questions.
 """
 
+import asyncio
 import os
 import discord
 from dotenv import load_dotenv
 
 from rag.chat import ask
+from rag.logging_utils import get_logger
 
 load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
+log = get_logger("rag.bot")
 
 
 class CerebraBot(discord.Client):
     async def on_ready(self):
-        print(f"Logged in as {self.user} (ID: {self.user.id})")
-        print("Cerebra is ready.")
-        print("------")
+        log.info("Logged in", extra={"extra": {"user": str(self.user), "id": self.user.id}})
+        log.info("Cerebra is ready")
 
     async def on_message(self, message):
         # Ignore messages from the bot itself
@@ -40,7 +42,9 @@ class CerebraBot(discord.Client):
 
         async with message.channel.typing():
             try:
-                response = ask(query)
+                # ask() performs synchronous network I/O (Chroma + LLM). Running it on the
+                # Discord event loop blocks heartbeats and causes disconnects.
+                response = await asyncio.to_thread(ask, query)
 
                 if not response or not response.strip():
                     await message.channel.send(
@@ -58,7 +62,7 @@ class CerebraBot(discord.Client):
                     await message.channel.send(response)
 
             except Exception as e:
-                print(f"[ERROR] Failed to process query: {e}")
+                log.exception("Failed to process query")
                 await message.channel.send(
                     "Sorry, I ran into an error. Please try again!"
                 )
@@ -71,6 +75,6 @@ client = CerebraBot(intents=intents)
 
 if __name__ == "__main__":
     if not TOKEN:
-        print("[ERROR] DISCORD_TOKEN not found in .env")
+        log.error("DISCORD_TOKEN not found in environment/.env")
     else:
         client.run(TOKEN)

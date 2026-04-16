@@ -5,26 +5,25 @@ Runs in order:
   1. Ingest — chunks + embeds data into ChromaDB Cloud
   2. Bot    — starts the Discord bot
 
+Prerequisites:
+  - Make sure your local embedding server is running in another terminal!
+    Command: vllm serve Qwen/Qwen3-Embedding-0.6B --task embed --port 8001
+
 Usage:
-  python main.py               # ingest + start bot
-  python main.py --ingest-only # only run ingest
-  python main.py --bot-only    # only start the bot
+  python -m rag.main               # ingest + start bot
+  python -m rag.main --ingest-only # only run ingest
+  python -m rag.main --bot-only    # only start the bot
 """
 
 import argparse
 import subprocess
 import sys
-from pathlib import Path
-
-ROOT          = Path(__file__).parent
-INGEST_SCRIPT = ROOT / "ingest.py"
-BOT_SCRIPT    = ROOT / "bot.py"
 PYTHON        = sys.executable
 
 
-def run(script: Path, label: str):
+def run_module(module: str, label: str):
     print(f"\n{'='*50}\n  {label}\n{'='*50}")
-    result = subprocess.run([PYTHON, str(script)])
+    result = subprocess.run([PYTHON, "-m", module])
     if result.returncode != 0:
         print(f"\n[ERROR] {label} failed. Fix the error above and re-run.")
         sys.exit(result.returncode)
@@ -42,12 +41,12 @@ def main():
     args = parse_args()
 
     if args.ingest_only:
-        run(INGEST_SCRIPT, "Ingesting data into ChromaDB")
+        run_module("rag.ingest", "Ingesting data into ChromaDB")
     elif args.bot_only:
-        run(BOT_SCRIPT, "Starting Discord Bot")
+        run_module("rag.bot", "Starting Discord Bot")
     else:
-        run(INGEST_SCRIPT, "Step 1/2 — Ingesting data into ChromaDB")
-        run(BOT_SCRIPT,    "Step 2/2 — Starting Discord Bot")
+        run_module("rag.ingest", "Step 1/2 — Ingesting data into ChromaDB")
+        run_module("rag.bot",    "Step 2/2 — Starting Discord Bot")
 
 
 if __name__ == "__main__":

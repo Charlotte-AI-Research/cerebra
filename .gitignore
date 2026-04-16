@@ -24,6 +24,8 @@ uv.lock
 .DS_Store
 Thumbs.db
 
+cerebra.log
 
 
 
+.embed_gateway.py*
