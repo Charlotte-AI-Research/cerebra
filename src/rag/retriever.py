@@ -132,7 +132,13 @@ def retrieve(query: str, n_results: int = 10) -> list[dict]:
     collection = get_collection()
     q = (query or "").strip()
     if not q:
+        log.info("Empty query passed to retriever; returning no results")
         return []
+
+    log.info(
+        "Running Chroma query",
+        extra={"extra": {"query": q, "n_results": int(n_results)}},
+    )
 
     try:
         # Avoid gating on count(); count() can be slow/fragile and a transient failure
@@ -143,7 +149,7 @@ def retrieve(query: str, n_results: int = 10) -> list[dict]:
             include=["documents", "metadatas", "distances"],
         )
     except Exception:
-        log.exception("Chroma query failed", extra={"extra": {"n_results": n_results}})
+        log.exception("Chroma query failed", extra={"extra": {"n_results": n_results, "query": q}})
         return []
 
     docs      = results["documents"][0]
@@ -156,6 +162,28 @@ def retrieve(query: str, n_results: int = 10) -> list[dict]:
         for doc, meta, dist in zip(docs, metadatas, distances)
     ]
 
+    # High-level log of what we pulled from Chroma before any expansion
+    sampled = chunks[: min(5, len(chunks))]
+    log.info(
+        "Chroma query returned chunks",
+        extra={
+            "extra": {
+                "total_chunks": len(chunks),
+                "sample": [
+                    {
+                        "priority": (c.get("metadata") or {}).get("priority"),
+                        "type": (c.get("metadata") or {}).get("type"),
+                        "title": (c.get("metadata") or {}).get("title"),
+                        "url": (c.get("metadata") or {}).get("url"),
+                        "doc_id": (c.get("metadata") or {}).get("doc_id"),
+                        "distance": c.get("distance"),
+                    }
+                    for c in sampled
+                ],
+            }
+        },
+    )
+
     # Sort by priority: high → medium → low
     priority_order = {"high": 0, "medium": 1, "low": 2}
     chunks.sort(key=lambda c: priority_order.get(c["metadata"].get("priority", "low"), 2))
@@ -166,14 +194,15 @@ def retrieve(query: str, n_results: int = 10) -> list[dict]:
     non_scraped = [c for c in chunks if (c.get("metadata") or {}).get("type") != "scraped_content"]
     combined = non_scraped + expanded_scraped
 
-    log.debug(
-        "Chroma query succeeded",
+    log.info(
+        "Chroma retrieval complete",
         extra={
             "extra": {
                 "returned_chunks": len(chunks),
                 "expanded_docs": len(expanded_scraped),
                 "combined": len(combined),
                 "top_distance": chunks[0]["distance"] if chunks else None,
+                "non_scraped": len(non_scraped),
             }
         },
     )
