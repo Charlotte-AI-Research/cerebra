@@ -117,14 +117,15 @@ def ask(question: str) -> str:
 
     chat_history = memory.load_memory_variables({}).get("chat_history", [])
 
-    chain = prompt | llm | StrOutputParser()
+    # Stop before StrOutputParser so we can inspect the raw AIMessage for reasoning
+    raw_chain = prompt | llm
 
     try:
-        log.debug(
+        log.info(
             "Invoking LLM",
             extra={"extra": {"model": LLM_MODEL, "base_url": LLM_BASE_URL, "context_chars": len(context)}},
         )
-        response = chain.invoke(
+        raw_msg = raw_chain.invoke(
             {
                 "system_prompt": SYSTEM_PROMPT,
                 "context": context,
@@ -139,11 +140,27 @@ def ask(question: str) -> str:
             "or contact the CAIR officers directly."
         )
 
+    # Log reasoning tokens if the model returns them (reasoning_content / thinking)
+    additional = getattr(raw_msg, "additional_kwargs", {}) or {}
+    reasoning = (
+        additional.get("reasoning_content")
+        or additional.get("thinking")
+        or additional.get("reasoning")
+    )
+    if reasoning:
+        log.info(
+            "LLM reasoning",
+            extra={"extra": {"reasoning": reasoning}},
+        )
+    else:
+        log.info("LLM reasoning: (none returned by model)")
+
+    response = StrOutputParser().invoke(raw_msg)
     response = (response or "").strip()
     if not response:
         return FALLBACK_MESSAGE
 
     memory.save_context({"question": query}, {"output": response})
 
-    log.info("Response generated", extra={"extra": {"chars": len(response)}})
+    log.info("Response generated", extra={"extra": {"chars": len(response), "response": response}})
     return response

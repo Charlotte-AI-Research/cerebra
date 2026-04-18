@@ -50,6 +50,33 @@ class _JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
+class _PlainFormatter(logging.Formatter):
+    """Plain-text formatter that appends the `extra` dict so chunk details are visible."""
+
+    _BASE = logging.Formatter(
+        fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    def format(self, record: logging.LogRecord) -> str:
+        base = self._BASE.format(record)
+        extra = getattr(record, "extra", None)
+        if extra and isinstance(extra, dict):
+            pairs = "  ".join(f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in extra.items())
+            return f"{base}  |  {pairs}"
+        return base
+
+
+class _VerboseFilter(logging.Filter):
+    """Suppress per-chunk detail lines from the stream handler; they belong in the file only."""
+
+    _PREFIXES = ("  chunk[", "  context[")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(msg.startswith(p) for p in self._PREFIXES)
+
+
 def setup_logging(*, name: str = "cerebra") -> logging.Logger:
     """
     Configure logging once for the process.
@@ -72,14 +99,12 @@ def setup_logging(*, name: str = "cerebra") -> logging.Logger:
     logger.propagate = False
 
     formatter: logging.Formatter
-    formatter = _JsonFormatter() if cfg.json else logging.Formatter(
-        fmt="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    formatter = _JsonFormatter() if cfg.json else _PlainFormatter()
 
     stream_handler = logging.StreamHandler(stream=sys.stdout)
     stream_handler.setLevel(level)
     stream_handler.setFormatter(formatter)
+    stream_handler.addFilter(_VerboseFilter())
     logger.addHandler(stream_handler)
 
     if cfg.log_file:

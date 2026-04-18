@@ -116,7 +116,7 @@ def _expand_scraped_docs(collection, chunk_hits: list[dict]) -> list[dict]:
 
         expanded.append({"text": full_text, "metadata": rep_meta})
 
-        log.debug(
+        log.info(
             "Expanded doc_id into full document",
             extra={"extra": {"doc_id": doc_id, "chunks": len(paired), "chars": len(full_text)}},
         )
@@ -162,27 +162,29 @@ def retrieve(query: str, n_results: int = 10) -> list[dict]:
         for doc, meta, dist in zip(docs, metadatas, distances)
     ]
 
-    # High-level log of what we pulled from Chroma before any expansion
-    sampled = chunks[: min(5, len(chunks))]
+    # Log every retrieved chunk with a text preview so you can verify what's being pulled
     log.info(
         "Chroma query returned chunks",
-        extra={
-            "extra": {
-                "total_chunks": len(chunks),
-                "sample": [
-                    {
-                        "priority": (c.get("metadata") or {}).get("priority"),
-                        "type": (c.get("metadata") or {}).get("type"),
-                        "title": (c.get("metadata") or {}).get("title"),
-                        "url": (c.get("metadata") or {}).get("url"),
-                        "doc_id": (c.get("metadata") or {}).get("doc_id"),
-                        "distance": c.get("distance"),
-                    }
-                    for c in sampled
-                ],
-            }
-        },
+        extra={"extra": {"total_chunks": len(chunks)}},
     )
+    for i, c in enumerate(chunks):
+        meta = c.get("metadata") or {}
+        text_preview = (c.get("text") or "")[:300].replace("\n", " ")
+        log.info(
+            f"  chunk[{i}]",
+            extra={
+                "extra": {
+                    "index": i,
+                    "distance": round(c.get("distance", 0), 4),
+                    "priority": meta.get("priority"),
+                    "type": meta.get("type"),
+                    "title": meta.get("title"),
+                    "url": meta.get("url"),
+                    "doc_id": meta.get("doc_id"),
+                    "text_preview": text_preview,
+                }
+            },
+        )
 
     # Sort by priority: high → medium → low
     priority_order = {"high": 0, "medium": 1, "low": 2}
@@ -195,17 +197,35 @@ def retrieve(query: str, n_results: int = 10) -> list[dict]:
     combined = non_scraped + expanded_scraped
 
     log.info(
-        "Chroma retrieval complete",
+        "Chroma retrieval complete — final context chunks",
         extra={
             "extra": {
                 "returned_chunks": len(chunks),
-                "expanded_docs": len(expanded_scraped),
-                "combined": len(combined),
-                "top_distance": chunks[0]["distance"] if chunks else None,
                 "non_scraped": len(non_scraped),
+                "expanded_docs": len(expanded_scraped),
+                "combined_total": len(combined),
+                "top_distance": round(chunks[0]["distance"], 4) if chunks else None,
             }
         },
     )
+    for i, c in enumerate(combined):
+        meta = c.get("metadata") or {}
+        text_preview = (c.get("text") or "")[:300].replace("\n", " ")
+        log.info(
+            f"  context[{i}]",
+            extra={
+                "extra": {
+                    "index": i,
+                    "priority": meta.get("priority"),
+                    "type": meta.get("type"),
+                    "title": meta.get("title"),
+                    "url": meta.get("url"),
+                    "doc_id": meta.get("doc_id"),
+                    "retrieval_mode": meta.get("retrieval_mode", "direct"),
+                    "text_preview": text_preview,
+                }
+            },
+        )
     return combined
 
 
